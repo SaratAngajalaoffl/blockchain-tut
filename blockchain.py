@@ -1,24 +1,56 @@
 import datetime
 import hashlib
 import json
-from flask import Flask,jsonify
-
+from flask import Flask,jsonify,request
+from urllib.parse import urlparse
+import requests
+from uuid import uuid4
 class BlockChain:
 	
 	def __init__(self):
 		self.chain = []
+		self.transactions = []
 		self.create_block(proof=1, previous_hash = '0')
+		self.nodes = set()
 	
 	def create_block(self,proof,previous_hash):
 		block = {
 			"index":len(self.chain),
 			"timestamp":str(datetime.datetime.now()),
 			'proof':proof,
+			'transactions':self.transactions,
 			'previous_hash':previous_hash
 		}
 
+		self.transactions= []
 		self.chain.append(block)
 		return block
+
+	def add_node(self,address):
+		parsed_url = urlparse(address)
+		self.nodes.add(parsed_url.netloc)
+
+	def replace_chain(self):
+		network = self.nodes
+		longest_chain = None
+
+		max_length = len(self.chain)
+
+		for node in network:
+			response = requests.get('http://' + node + '/get-chain')
+			if response.status_code == 200:
+				length = response.json()['length']
+				chain = response.json()['chain']
+				if length > max_length and self.is_chain_valid(chain):
+					max_length = length
+					longest_chain = chain
+
+		if longest_chain:
+			self.chain = longest_chain
+			return True
+		
+		return False
+
 
 	def get_previous_block(self):
 		return self.chain[-1]
@@ -58,9 +90,19 @@ class BlockChain:
 			block_index = block_index + 1
 		
 		return True
+	
+	def add_transaction(self,sender,reciever,amount):
+		self.transactions.append({
+			'sender':sender,
+			'reciever':reciever,
+			'amount':amount
+		})
 
+		return len(self.transactions)
 
 app = Flask(__name__)
+
+node_address = str(uuid4()).replace('-','')
 
 blockchain = BlockChain()
 
@@ -73,6 +115,7 @@ def mine_block_handler():
 	previous_proof = previous_block['proof']
 	proof = blockchain.get_proof_of_work(previous_proof)
 	previous_hash = blockchain.hash(previous_block)
+	blockchain.add_transaction(sender=node_address,reciever='Sarat',amount=1)
 	block = blockchain.create_block(proof,previous_hash)
 
 	response = {
